@@ -1,10 +1,10 @@
 # zoom-H4n-recovery
-Howto & tool for recovering Zoom H4n handheld recorder audio from corrupted SD-card
+Howto guide & tool for recovering a 0-byte file(s) recording from a Zoom H4n handheld recorder corrupted SD-card.
 
-## A guide to recovering a recording from a Zoom H4n handheld recorder
+## A guide to recovering a recording for a Zoom H4n handheld recorder
 .. and very likely also for other Zoom models of similar era & technology
 
-My Zoom H4n (firmware v1.90) had its power cord pulled while recording internal mics & line inputs (4 channels total), which netted me two .wav files 0 bytes in size. This unfortunate event is something that happens to a lot of people around the globe, hence I decided to write up my endevour in recovering my recording and publish the program I wrote for restoring my data.
+My Zoom H4n (firmware v1.90) had its power cord pulled while recording internal mics & line inputs (4 channels total), which netted me two .wav files 0 bytes in size. This kind of unfortunate event happens to a lot of people around the globe, hence I decided to write up my endevour in recovering my recording and publish the program I wrote for restoring my data.
 
 The bad news: I can say with certainty that no file recovery program on the internet is going to help you in the event of power loss (net adapter pulled, batteries dead), pulling the card too soon, or any other reason for not having closed down the recording properly (which includes a faulty SD card). Don't spend your time on it, don't risk installing spyware and what not: Recovery is a manual process, of which I have not (yet?) dreamed up an automated "next next finish"-process for. No exceptions, don't waste your time installing spyware that claims to magically recover anything for you.
 
@@ -30,6 +30,10 @@ First step in any data recovery process is to make what's called a disk image of
 How to do it exactly is beyond the scope of this document. Use 'dd' on Linux, Disk Utility on your Mac, or something like Clonezilla on your Windows machine. Read up on how to do it online or ask a savvy friend. It not really matter how, so long you end up with a disk image of the first (and only) partition.
 * Of course an image of the entire disk also works, but that means you'll have to factor in the offset of the filesystem in your image during every calculation & operation coming up later, as the filesystem not starts at byte zero. Cutting off the leading part holding the disk label later such the filesystem is at byte 0 again is also an option of course.
 
+If your image does include the disk label & MBR and all that jazz as copied from the SD card,
+the offset of the partition from the start of the disk (meaning when it is prefixed with a partition label) is 4194kB, being byte 4194304 when FAT32 is used.
+On smaller disks (2GB and under) the H4n firmware uses FAT16 to maximise effective use of the storage medium, with an offset of 127kB, being byte 127488 into the disk.
+
 Now we have an image of the entire partition, we can go look for our lost recording. Turns out it is very hard to write a computer program for reliably doing this, yet your brain can do with relative ease. A polular line editor for working on audio is Audacity. There's plenty file formats it can load & view, the most important feature for us now is its ability to load raw data. In the File menu, go to import, raw data and select your image file holding the entire first partition of the SD-card.
 
 For importing raw data we have to set how Audacity is to interpret the raw data in our file. Once you have selected the file a window pops up:
@@ -53,7 +57,12 @@ Wait, what's demultiplexing?
 
 Demultiplexing is the opposite of multiplexing: When the H4n firmware writes two files, they actually are written to disk much like the two halves of a zipper on your clothes or bag become one. There's two distinct files from the perception of the user (such they are shown when plugging the SD-card into your PC) but actually on the SD-card there's a part of the stereo .wav for internal mics written, then a part for the stereo .wav for the line in, then another part of the .wav file for internal mics etc. So to you, the user, it appears as two distinct files, but on disk they are interleaved, multiplexed, mixed; call it what you will. When loading the disk (partition) image raw into Audacity, this shows as the audio cutting back and forth between internal mics and the line-in signals.
 
-The H4n firmware writes chunks of each file in a continuous strip while recording, almost like the SD-card is a tape-deck. Once you hit stop, it writes to the File Allocation Table (FAT16 or FAT32) what chunk belongs to the 1st .wav file, what chunks to the 2nd .wav file. To you they appear as two files, but they are one single strip of data on the SD-card and thus in the image file.
+The H4n firmware writes chunks of each file in a continuous strip while recording, almost like the SD-card is a tape-deck. Once you hit stop, it writes to the File Allocation Table (FAT) what chunk belongs to the 1st .wav file, what chunks to the 2nd .wav file. To you they appear as two files, but they are one single strip of data on the SD-card and thus in the image file.
+
+The H4n has two formatting schemes, depending on what size SD-card you feed it. Anything over 2GB is formatted as FAT32. Anything up and including 2GB is formatted as FAT16.
+The developers of the firmware did this to maximize the effective use of available storage space, as FAT16 takes less storage space overhead than FAT32 does. As such, FAT16 leaves more room for storing user data (the recording).
+
+Why 2GB as turning point for FAT16 to FAT32? The Zoom firmware insists on a cluster size of 32768 bytes, which is 64 sectors of 512 bytes. All of its writing routines and patterns are based on this cluster size. When you multiply 32KB (cluster size) with 2 (binary) to the power of 16 (the number of bits used for addressing clusters in FAT16) you get 2GB as upper limit. If you want to address more storage space, you need more than 16 bits for addressing them.
 
 How to undo this interleaving by means of demultiplexing?
 
@@ -71,43 +80,26 @@ Using Audacity we have found the starting point of our lost recording in the ima
 
 Unfortunately, we cannot do the cutting with Audacity, as Audacity does all sorts of conversions, prepends headers to the files it saves etc. so all it is to be used for is finding where the start of our lost recording is in the disk image file. Once we found that, we need calculate the start of the recording into a cluster offset, which we will use in another program to cut the file into two (another tool/program which does operations on raw data, no conversions like Audacity does).
 
-Once very handy feature of Audacity for this purpose is its ability to not only show the position of the cursor in hours/minutes/seconds, it can also be set to show the position of the cursor in samples. Once you know the sample number, it is trivial to calculate that into a byte-offset in the disk (partition) image.
+Once very handy feature of Audacity for this purpose is its ability to not only show the position of the cursor in hours/minutes/seconds, it can also be set to show the position of the cursor in samples. If this toolbar is not visible on screen, enable it in the menu View > Toolbars > Time Toolbar. Once you know the sample number, it is trivial to calculate that into a byte-offset in the disk (partition) image.
 
-The size of one sample depends on the chosen resolution: 16-bit resolution is 2 bytes, 24-bit resolution is 3 bytes. What Audacity refers to as a sample is actually two samples, as our files are stereo. So, in 16-bit mode one sample is 4 bytes, in 24-bit mode one sample is 6 bytes. And there's little more to it than that.
+The size of one sample depends on the chosen resolution: A byte is 8 bits, so 16-bit resolution is 2 bytes, 24-bit resolution is 3 bytes. What Audacity refers to as a sample is actually two samples, as our files are stereo. So, in 16-bit mode one sample in Audacity terms is 4 bytes, in 24-bit mode one sample is 6 bytes. So your sample number times 4 or times 6 depending on what sample size you picked during the raw import is the byte offset in the image.
 
-Now putting your cursor precisely on the start of the lost recording in Audacity is a bit tricky. 
+Now putting your cursor precisely on the start of the lost recording in Audacity is a bit tricky. Due to the H4n firmware always starting in a new sector however, we know for sure the offset byte in the image always must be a multiplum of the cluster size: 32768 bytes. With some very basic mathematics we can get ourselves to the exact correct number:
 
-16 clusters is 524288 bytes. When sampling at 44100 times a second, with 16bits (two bytes) of resolution times two because stereo, each second of audio takes 2 bytes * 2 channels * 44100 samples = 176400 bytes. If we divide 524288 bytes by 176400 bytes we find that each chunk (16 clusters) is about ~2.97215 seconds worth of data.
+As an example, say you found your recording in the disk image using Audacity, at sample 15926142. Assuming you used a 16-bit resolution for the recording (and thus for importing the raw data into Audacity) each sample will be 4 bytes. So the byte offset for your cursor is sample 15926142 * samplesize 4 = byte 63704568. Now if we divide that by the clustersize, 63704568 / 32768 = ~1944.1091, which can't be because recordings always start precisely at the beginning of a cluster. The number ~1944.1091 is however awfully close to 1944, meaning your recording most likely starts at cluster 1944 and the extra .1091 is your click being slightly off. Cluster 1944 * clustersize 32768 = byte 63700992.
 
+(Another way would be to use a time mark in (milli)seconds, and recalculate that into a byte-offset using both the resolution and samplerate. But I leave figuring that out as an excersise to the reader.)
 
+So, assuming you did your homework, you now have the cluster your recording starts at. How to cut the file?
 
+There's multiple ways to do this of course, so if you are already familiar with this kind of business, use the tool which suits you best: A hex-editor, some binary cut'n'paste tool whatever. As an example I'll propose to you another use of 'dd', which is the same tool you most likely also have used to make the disk image in the first place, if you are on a Linux machine.
+This step is actually very simple: dd if=[your file] of=[your file but cut] bs=32768 skip=1944
+What the above says is make a carbon copy of the input file, interpret this file as block of 32768 bytes, skip the first 1944 which means block index 1944 is now block 0 in the new file.
 
+Beware that if your disk image is that of the whole disk and not only the first partition, then you have to subtract the partition offset from your from samples found byte offset, do the cluster calculation, convert that to bytes again and add the prior subtracted offset. And when you got your number in bytes, not specify a block size to dd but use the byte offset for skipping only. These extra steps makes it more likely you screw up the numbers. -> This is why I adviced you to work with an image of the partition, not the whole disk.
 
+// TODO: Modify zoomdeinterleave.cpp such it also takes an offset, which makes the copy operation of data from the disk image file to a new (but cut) disk image file using 'dd' unneeded.
 
+You now have the exact start of the recording at byte 0 of your image file. It is however still cutting back and forth between the internal mics and external inputs of the Zoom H4n audio recorder. This is where the zoomdeinterleave tool comes in. All it takes to untangle this (assuming you got all your finding & calculating of the start cluster right): ./zoomdeinterleave mics.wav line.wav your_cut_disk_image.img
 
-Bit of file system analysis, as created & written to by the v1.90 firmware of the Zoom H4n handheld SD-card recorder.
-
-All the following numbers are based on the filesystem starting at offset 0 (meaning no offset, so no partition table in the image),
-and the filesystem being FAT32.
-
-The H4n has two formatting schemes, depending on what size SD-card you feed it. Anything over 2GB is formatted as FAT32. Anything up and including 2GB is formatted as FAT16.
-The developers of the firmware did this to maximize the effective use of available storage space, as FAT16 takes less storage space overhead than FAT32 does. As such, FAT16 leaves more room for storing user data (the recording).
-
-Why 2GB as turning point for FAT16 to FAT32? The Zoom firmware insists on a cluster size of 32768 bytes, which is 64 sectors of 512 bytes. All of its writing routines and patterns are based on this cluster size. When you multiply 32KB (cluster size) with 2 (binary) to the power of 16 (the number of bits used for addressing clusters in FAT16) you get 2GB as upper limit. If you want to address more storage space, you need more than 16 bits for addressing them.
-
-If your image does include the disk label & MBR and all that jazz as copied from the SD card,
-the offset of the partition from the start of the disk (meaning when it is prefixed with a partition label) is 4194kB, being byte 4194304 when FAT32 is used.
-On smaller disks (2GB and under) the H4n firmware uses FAT16 to maximise effective use of the storage medium, with an offset of 127kB, being byte 127488 into the disk.
-
-All of the data writing patterns used in the v1.90 firmware of the H4n are based around the following two numbers:
-Sector Size: 512 bytes
-Cluster Size: 32768 bytes (64 sectors)
-The above is true for both the FAT32 and the FAT16 variety of disk formatting schemes.
-
-From here onward, all the numbers are based on a FAT32 formatted disk (which means it was over 2GB in size) but without the disklabel & MBR in the image. All numbers are based on the start of the partition being byte 0 in the image, meaning the image only contains the FAT32 filesystem and nothing else.
-
-Table sectors: 0 - 8191 (out of which 0 - 4501 are reserved so effectively 4502 - 8191)
-Data sectors: 8192 - end of disk, or there about
-
-Somewhere in those data sectors is your recording, even though those sectors have not been assigned to the listed filename yet. Hence, your file is 0 bytes in size when viewed on your PC.
-
+And, if you did your homework right: There it is. Your precious lost recording recovered!
