@@ -1,12 +1,18 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdint>
 #include <cstring> // memset()
 
 #define ZOOM_FAT_SECTOR_SIZE 512 // In bytes
 #define ZOOM_FAT_CLUSTER_SIZE 64 // In sectors
+
+// Zoom H4n v1.90 starts by writing a cluster for each of 4CHxxxM.wav & 4CHxxxI.wav,
+// then starts alternating between writing 16 clusters of each file, writing 17 clusters of each file etc.
+// Which I think is a bug in the firmware: I think it was meant to do 1 cluster of each, then 16 of each until end of file.
+// To me it looks like 1 + 16 becoming 17 on every uneven iteration apart from the first is a programming error
+#define ZOOM_START_SIZE 1 // In clusters
 #define ZOOM_INTERLEAVE_SIZE 16 // In clusters
-#define ZOOM_INTERLEAVE_SIZE_DEVIATION 1 // Zoom H4n v1.90 alternates between writing 16 clusters of each file, writing 17 clusters of each etc.
 
 using namespace std;
 
@@ -75,21 +81,24 @@ int main(int argc, char *argv[])
 
     if(offset != 0)
     {
-        if(!interleaved.seekg(offset, ios_base::beg)) // Set offset relative to begin of stream
-        {
-            cout << "Failed to seek to byte offset " << offset << ". Offset bigger than file?" << endl;
-            return 2;
-        }
-        cout << "Starting deinterleaving at cluster " << (offset / (ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE)) << endl;
+        cout << "Starting deinterleave at byte " << offset << endl;
+        interleaved.seekg(offset, ios_base::beg); // Set offset relative to begin of stream
     }
 
     uint64_t bytecount = 0;
 
     for(uint32_t i = 0; !interleaved.eof(); i++)
     {
-        uint32_t chunksize = ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_INTERLEAVE_SIZE;
-        if((i / 2) % 2 == 1)
-            chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_INTERLEAVE_SIZE_DEVIATION;
+        // Net effect of the following is: 1,1,16,16,17,17,16,16,17,17 etc. (in clusters)
+        // I suspect this was intended to be 1,1,16,16,16,16,16,16 etc. but somebody screwed up.
+        // Sometimes, for reasons I cannot phantom, it even does: 1,1, wasting 14 clusters (448K) of space, then continue 16,16,17,17,16,16,17,17 etc.
+        // Weird shit. It worked though, so nobody noticed, so nobody bothered fixing it. Newer devices may have it fixed.
+        // (Zoom being from Japan though, I suspect it never gonna be fixed for some weird cultural reason with respect or something)
+        uint32_t chunksize = 0;
+        if((i / 2) % 2 == 0)
+            chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_START_SIZE;
+        if((i / 2) > 0)
+            chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_INTERLEAVE_SIZE;
 
         char buffer[chunksize];
         memset(buffer, 0, chunksize);
