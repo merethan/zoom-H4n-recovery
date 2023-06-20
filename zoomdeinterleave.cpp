@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring> // memset()
 
+// The following are insisted upon by the Zoom H4n firmware, which is why it likes doing the formatting of SD-cards itself
 #define ZOOM_FAT_SECTOR_SIZE 512 // In bytes
 #define ZOOM_FAT_CLUSTER_SIZE 64 // In sectors
 
@@ -20,7 +21,7 @@ int main(int argc, char *argv[])
 {
     string infile;
     string outfile[2];
-    uint32_t offset = 0;
+    uint64_t offset = 0; // Maximum filesize 2^64 = 16777216TB (yes terabytes)
 
     // Count of arguments is the program name itself, plus the arguments to it;
     // from argv[1] and onward is interesting to us
@@ -32,7 +33,7 @@ int main(int argc, char *argv[])
         outfile[1] = infile + ".I.wav"; // as used by the firmware itself
         break;
     case 3: // Program name, offset, infile
-        offset = stol(argv[1]);
+        offset = stoll(argv[1]);
         infile = argv[2];
         outfile[0] = infile + "+offset.M.wav"; // Using these letters sortof mimics the naming
         outfile[1] = infile + "+offset.I.wav"; // as used by the firmware itself
@@ -45,7 +46,7 @@ int main(int argc, char *argv[])
     case 5: // Program name, outfile, outfile, offset, infile
         outfile[0] = argv[1];
         outfile[1] = argv[2];
-        offset = stol(argv[3]);
+        offset = stoll(argv[3]);
         infile = argv[4];
         break;
     default:
