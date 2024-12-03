@@ -23,9 +23,9 @@
 
 enum DeviceModel
 {
-    ZOOM_H4n,
-    ZOOM_H6,
-    DEVICE_UNDEFINED
+    ZOOM_H4n = 0,   // Normal & Pro model; same writing routines
+    ZOOM_H6,        // Like H4n & Pro, but different cluster counts
+    ZOOM_BROKEN,    // Sometimes buggy firmware does really weird shit, one needs a single-use hack for
 };
 
 using namespace std;
@@ -36,8 +36,6 @@ int main(int argc, char *argv[])
     string outfile[2];
     uint64_t offset = 0; // Maximum filesize 2^64 = 16777216TB (yes terabytes)
     uint64_t limit = 0; // The amount (count) of bytes we'll do
-
-    // TODO: Make cmdline argument
     DeviceModel devicemodel = ZOOM_H4n;
 
     // Count of arguments is the program name itself, plus the arguments to it;
@@ -73,8 +71,16 @@ int main(int argc, char *argv[])
         limit = stoll(argv[4]);
         infile = argv[5];
         break;
+    case 7: // Program name, pattern, outfile, outfile, offset, limit, infile
+        devicemodel = (DeviceModel) stoll(argv[1]);
+        outfile[0] = argv[2];
+        outfile[1] = argv[3];
+        offset = stoll(argv[4]);
+        limit = stoll(argv[5]);
+        infile = argv[6];
+        break;
     default:
-        cout << "Usage: " << argv[0] << " [outfile_mics outfile_line] [offset] [limit] infile" << endl;
+        cout << "Usage: " << argv[0] << " [pattern] [outfile_mics outfile_line] [offset in bytes] [limit in bytes] infile" << endl;
         return 1;
     }
 
@@ -85,9 +91,9 @@ int main(int argc, char *argv[])
     // made an image of the entire disk. In such case the disk label & MBR skew all cluster positions in the image
     // and hence this assumption not applies. For this reason this program takes an offset in bytes, not in clusters.
     // Do however warn the user in the case of an offset not aligning to cluster size
-    if(offset % (ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE))
+    if((offset % (ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE)) && (devicemodel != ZOOM_BROKEN)) // When doing random hacky shit, no need warn anyone
     {
-        cout << "Warning: Supplied offset is not a multiplum of the cluster size used by the Zoom H4n firmware." << endl;
+        cout << "Warning: Supplied offset is not a multiplum of the cluster size used by the Zoom H4n & H6 firmware." << endl;
         cout << "Data of an audio recording always starts at the beginning of a cluster!" << endl;
         cout << "If you use this program on an image of a partition, you have made a calculation error." << endl;
         cout << "Only when using this program on a full disk image can a valid offset be anything other than a multiplum of " << (ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE) << endl;
@@ -114,7 +120,7 @@ int main(int argc, char *argv[])
 
     for(uint32_t i = 0; !interleaved.eof(); i++)
     {
-        uint32_t chunksize = 0;
+        uint32_t chunksize = 0; // In bytes
 
         switch(devicemodel)
         {
@@ -144,8 +150,29 @@ int main(int argc, char *argv[])
         }
         break;
 
+        case ZOOM_BROKEN:
+        {
+            // Net effect of the following is: 481680,481680,511800,511800 etc. (in bytes!)
+            // I had a weird case drop into my inbox, where the only explanation I could come up with
+            // is the device firmware having colossally screwed up: After 30 minutes of recording,
+            // a freshly formatted 32GB card was designated to be "full" by a H4n Pro running v1.01 firmware..?
+            // Which in itself is a total fail obviously, but the thing also not written any metadata, leaving 0-byte files.
+            // Upon inspection, turned out the device not done the usual interleaving pattern, but 481680,481680,511800,511800 bytes..?
+            // Which is a (somewhat) similar pattern to 16,16,17,17 in clusters, but it not adheres to cluster boundaries or even sector boundaries.
+            // Sharp minds immediately see how this can never work, as the smallest fraction one can allocate to an (interleaved) file is a sector:
+            // When making files you not need use all of the last sector, but a sector can never realistically be used for two files.
+            // So if the interleaved datastream not has the interleaving boundaries on sector boundaries, something has gone very very haywire.
+            // Meaning, the data of this gentleman in my inbox would have never read correctly even if the device had properly written metadata.
+            // But to recover at least something, I use this before mentioned pattern, which I found using Audacity, my ears, and a spreadsheet
+            if((i / 2) % 2 == 0)
+                chunksize = 481680;
+            else
+                chunksize = 511800;
+        }
+        break;
+
         default:
-            cout << "You fucked up the code" << endl;
+            cout << "Unknown pattern enumeration" << endl;
             return 3;
         }
 
