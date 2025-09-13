@@ -24,6 +24,7 @@
 enum DeviceModel
 {
     ZOOM_H4n = 0,   // Normal & Pro model; same writing routines
+    ZOOM_H4n_JUMP,  // Same as ZOOM_H4n, but without weird start routine, such you can jump to any place in the partition image
     ZOOM_H6,        // Like H4n & Pro, but different cluster counts
     ZOOM_BROKEN,    // Sometimes buggy firmware does really weird shit, one needs a single-use hack for
 };
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
     string outfile[2];
     uint64_t offset = 0; // Maximum filesize 2^64 = 16777216TB (yes terabytes)
     uint64_t limit = 0; // The amount (count) of bytes we'll do
-    DeviceModel devicemodel = ZOOM_H4n;
+    DeviceModel devicemodel = ZOOM_H4n_JUMP;
 
     // Count of arguments is the program name itself, plus the arguments to it;
     // from argv[1] and onward is interesting to us
@@ -135,6 +136,18 @@ int main(int argc, char *argv[])
                 chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_H4n_START_SIZE;
             if((i / 2) > 0)
                 chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_H4n_INTERLEAVE_SIZE;
+        }
+        break;
+
+        case ZOOM_H4n_JUMP:
+        {
+            // This is just like ZOOM_H4n, but without the weird file start: 16,16,17,17,16,16,17,17 etc. (in clusters).
+            // Sometimes, when a card has been used a lot for similar recordings, it is really hard to find the start of a recording.
+            // So instead, just find the part you like, figure out where a 16 clusters pair starts, and jump into the action there
+            chunksize = ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_H4n_INTERLEAVE_SIZE;
+
+            if((i / 2) % 2 > 0)
+                chunksize += ZOOM_FAT_SECTOR_SIZE * ZOOM_FAT_CLUSTER_SIZE * ZOOM_H4n_START_SIZE;
         }
         break;
 
